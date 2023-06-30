@@ -2,7 +2,7 @@
 
 #include <memory>
 #include <type_traits>
-#include "hash.hpp"
+#include "./hash.hpp"
 
 namespace swl
 {
@@ -12,6 +12,8 @@ struct pair {
   A first;
   B second;
 };
+
+struct empty {};
 
 template <class Key, class Val, class Hash = hash<Key>, int Bucket = 16>
 class incremental_hashmap
@@ -28,22 +30,20 @@ class incremental_hashmap
   
   union ElemStorage
   {
-    char e;
+    empty e;
     element value;
   };
   
   struct chunk 
   {
-  
     constexpr ~chunk() {
       delete next;
-      //next.reset();
       for (int k = 0; k < Bucket; ++k)
         if (flag[k])
           std::destroy_at(&elems[k].value);
     }
     
-    ElemStorage elems[Bucket];
+    ElemStorage elems[Bucket] = {empty{}};
     bool flag[Bucket] = {false};
     chunk* next = nullptr;
   };
@@ -107,9 +107,11 @@ class incremental_hashmap
     {}
     
     
-    constexpr auto& operator++() { 
+    constexpr auto& operator++() 
+    { 
       while(true)
       {
+        // FIXME : this is wrong
         if (++idx == Bucket)
         {
           c = c->next; 
@@ -136,8 +138,9 @@ class incremental_hashmap
     int idx;
   };
   
+  constexpr incremental_hashmap() = default;
+  
   constexpr auto begin() {
-    auto res = iterator{&root, 0};
     return root.flag[0] ? iterator{&root, 0} : ++iterator{&root, 0};
   }
   
@@ -145,12 +148,21 @@ class incremental_hashmap
     return iterator{nullptr, 0};
   }
   
-  constexpr pair<element*, bool> insert( const Key& key, Val val ) 
+  template <class... Args>
+  constexpr pair<element*, bool> emplace( const Key& key, Args&&... args ) {
+    auto [ptr, success] = try_emplace( key, (Args&&) args... );
+    if (not success)
+      ptr->value = Val{(Args&&)args...};
+    return {ptr, success};
+  }
+  
+  template <class... Args>
+  constexpr pair<element*, bool> try_emplace( const Key& key, Args&&... args )
   {
     auto [c, idx, z] = find_or_alloc(key);
     if ( c.flag[idx] )
       return {&c.elems[idx].value, false};
-    return {construct_at(c, idx, key, (Val&&)val), true};
+    return {construct_at(c, idx, key, (Args&&)args...), true};
   }
   
   constexpr bool contains(const Key& key) const {

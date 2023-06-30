@@ -17,16 +17,16 @@ void dump(M& map)
   std::cout << "} \n";
 }
 
-void test1()
+consteval void test1()
 {
   swl::incremental_hashmap<int, int> map;
   
-  map.insert( 4, 5 );
+  map.emplace( 4, 5 );
 
   ensure( map.contains(4) );
   ensure( *map.find(4) == 5 );
   
-  map.insert( 20, 8 );
+  map.emplace( 20, 8 );
   
   ensure( map.contains(4) && map.contains(20) );
   ensure( *map.find(4) == 5 );
@@ -35,13 +35,13 @@ void test1()
 
 static constexpr auto num_step = 324;
 
-void test2()
+consteval void test2()
 {
   swl::incremental_hashmap<int, int> map;
   
   for (int i = 0; i < num_step; ++i) 
   {
-    map.insert(i, i * 4);
+    map.emplace(i, i * 4);
   }
   
   for (int i = 0; i < num_step; ++i) 
@@ -60,7 +60,7 @@ consteval void test_set()
   };
   
   for (auto v : Val)
-    s.insert(v);
+    s.emplace(v);
   
   for (auto v : Val)
     ensure( s.contains(v) );
