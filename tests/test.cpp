@@ -1,23 +1,12 @@
-#include "incremental_hashmap.hpp"
-#include "incremental_hashset.hpp"
-
-#include <iostream>
+#include <swl/incremental_hashmap.hpp>
+#include <swl/incremental_hashset.hpp>
 
 constexpr void ensure(bool v) {
   if (not v)
     throw "error";
 }
 
-template <class M>
-void dump(M& map) 
-{
-  std::cout << "{";
-  for (auto& e : map)
-    std::cout << "(" << e.key << ", " << e.value << "), ";
-  std::cout << "} \n";
-}
-
-consteval void test1()
+consteval void test_map1()
 {
   swl::incremental_hashmap<int, int> map;
   
@@ -35,7 +24,7 @@ consteval void test1()
 
 static constexpr auto num_step = 324;
 
-consteval void test2()
+consteval void test_map2()
 {
   swl::incremental_hashmap<int, int> map;
   
@@ -50,6 +39,45 @@ consteval void test2()
   }
 }
 
+
+consteval void check(bool cond) {
+  if (not cond)
+    throw "fail";
+}
+
+consteval void test_iter_basic()
+{
+  swl::incremental_hashmap<int, int> map;
+  ensure( map.begin() == map.end() );
+  
+  for (int k = 0; k < 431; k += 7)
+    map.emplace(231 + k, k);
+  
+  auto it = map.begin();
+  for (int k = 0; k < 431; ++k)
+    ++it;
+  
+  ensure( it == map.end() );
+}
+
+consteval void test_iter() 
+{
+  swl::incremental_hashmap<int, int> map;
+  
+  for (int i = 0; i < num_step; ++i) 
+    map.emplace(124 + i, 0);
+  
+  int count = 0;
+  for (auto& e : map)
+  {
+    ++(*map.find(e.key));
+    ++count;
+  }
+  
+  for (auto& e : map)
+    ensure(e.value == 1);
+  ensure( count == num_step );
+}
 
 consteval void test_set()
 {
@@ -68,7 +96,9 @@ consteval void test_set()
 
 int main()
 {
-  test1();
-  test2();
+  test_map1();
+  test_map2();
+  test_iter_basic();
+  test_iter();
   test_set();
 }

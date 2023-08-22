@@ -22,7 +22,7 @@ class incremental_hashmap
   
   struct element
   { 
-    Key key;
+    const Key key;
     [[no_unique_address]] Val value;
   };
   
@@ -31,13 +31,13 @@ class incremental_hashmap
   union ElemStorage
   {
     empty e;
-    element value;
+    element value; // TODO : rename this "data"
   };
   
   struct chunk 
   {
-    constexpr ~chunk() {
-      delete next;
+    // only to be called in dtor
+    constexpr void destroy_elems() {
       for (int k = 0; k < Bucket; ++k)
         if (flag[k])
           std::destroy_at(&elems[k].value);
@@ -100,25 +100,30 @@ class incremental_hashmap
   
   public : 
   
-  struct iterator 
+  template <class T>
+  struct iterator_t 
   {
-    constexpr iterator(chunk* c_, int idx_) 
+    constexpr iterator_t(chunk* c_, int idx_) 
     : c{c_}, idx{idx_}
     {}
     
-    
     constexpr auto& operator++() 
     { 
+      if (not c)
+        return *this;
+        
       while(true)
       {
-        // FIXME : this is wrong
-        if (++idx == Bucket)
+        ++idx;
+        if (idx == Bucket)
         {
-          c = c->next; 
+          c = c->next;
           idx = 0;
-          
           if (not c)
             return *this;
+          while(not c->flag[idx]) // there is at least one per chunk
+            ++idx;
+          return *this;
         }
         
         if (c->flag[idx])
@@ -126,11 +131,11 @@ class incremental_hashmap
       }
     }
     
-    constexpr auto& operator*() const {
+    constexpr T& operator*() const {
       return (c->elems[idx].value);
     }
     
-    constexpr bool operator==(iterator i) const {
+    constexpr bool operator==(iterator_t i) const {
       return c == i.c and idx == i.idx;
     }
     
@@ -138,14 +143,39 @@ class incremental_hashmap
     int idx;
   };
   
+  using key_type = Key;
+  using value_type = Val;
+  using iterator = iterator_t<element>;
+  using const_iterator = iterator_t<const element>;
+  
   constexpr incremental_hashmap() = default;
   
-  constexpr auto begin() {
+  constexpr ~incremental_hashmap() 
+  {
+    root.destroy_elems();
+    for (chunk* c = root.next; (bool)c; )
+    {
+      c->destroy_elems();
+      auto old = c;
+      c = c->next;
+      delete old;
+    }
+  }
+  
+  constexpr iterator begin() {
     return root.flag[0] ? iterator{&root, 0} : ++iterator{&root, 0};
   }
   
-  constexpr auto end() {
+  constexpr iterator end() {
     return iterator{nullptr, 0};
+  }
+  
+  constexpr const_iterator begin() const {
+    return root.flag[0] ? const_iterator{&root, 0} : ++const_iterator{&root, 0};
+  }
+  
+  constexpr const_iterator end() const {
+    return const_iterator{nullptr, 0};
   }
   
   template <class... Args>
