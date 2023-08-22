@@ -131,9 +131,9 @@ class incremental_hashmap
       }
     }
     
-    constexpr T& operator*() const {
-      return (c->elems[idx].value);
-    }
+    constexpr T& operator*() const { return (c->elems[idx].value); }
+    
+    constexpr T* operator->() const { return (&c->elems[idx].value); }
     
     constexpr bool operator==(iterator_t i) const {
       return c == i.c and idx == i.idx;

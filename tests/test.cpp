@@ -60,6 +60,15 @@ consteval void test_iter_basic()
   ensure( it == map.end() );
 }
 
+consteval void test_iter_type(const swl::incremental_hashmap<int, int>& x)
+{
+  const swl::incremental_hashmap<int, int> constMap;
+  static_assert( std::is_same_v< decltype((constMap.begin()->value)), const int& > );
+  
+  swl::incremental_hashmap<int, int> Map;
+  static_assert( std::is_same_v< decltype((Map.begin()->value)), int& > );
+}
+
 consteval void test_iter() 
 {
   swl::incremental_hashmap<int, int> map;

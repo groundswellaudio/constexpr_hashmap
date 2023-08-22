@@ -26,13 +26,14 @@ class incremental_hashset : incremental_hashmap<Key, empty, Hash, Bucket>
   
   using Base::contains;
   
-  struct iterator : Base::iterator 
+  struct iterator : Base::iterator
   {
-    constexpr const auto& operator*() const { return Base::iterator::operator*().key; } 
+    constexpr const Key& operator*() const { return Base::iterator::operator*().key; } 
+    constexpr const Key* operator->() const { return &Base::iterator::operator*().key; }
   };
   
-  constexpr auto begin() { return iterator{Base::begin()}; }
-  constexpr auto end()   { return iterator{Base::end()}; }
+  constexpr auto begin() const { return iterator{Base::begin()}; }
+  constexpr auto end() const { return iterator{Base::end()}; }
 };
 
 }
