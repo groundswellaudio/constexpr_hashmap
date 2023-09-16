@@ -30,6 +30,15 @@ class incremental_hashmap
   
   union ElemStorage
   {
+    constexpr ~ElemStorage() 
+    requires (std::is_trivially_destructible_v<element>)
+    = default;
+    
+    constexpr ~ElemStorage() 
+    requires (not std::is_trivially_destructible_v<element>)
+    {
+    }
+    
     empty e;
     element value; // TODO : rename this "data"
   };
@@ -49,8 +58,6 @@ class incremental_hashmap
   };
   
   chunk root;
-  
-  struct table;
   
   static constexpr std::size_t hash(const Key& K) {
     return Hash{}(K);
@@ -98,6 +105,17 @@ class incremental_hashmap
     return {*c.next, idx};
   }
   
+  constexpr void destroy() {
+    root.destroy_elems();
+    for (chunk* c = root.next; (bool)c; )
+    {
+      c->destroy_elems();
+      auto old = c;
+      c = c->next;
+      delete old;
+    }
+  }
+  
   public : 
   
   template <class T>
@@ -139,6 +157,8 @@ class incremental_hashmap
       return c == i.c and idx == i.idx;
     }
     
+    private : 
+    
     chunk* c;
     int idx;
   };
@@ -147,19 +167,12 @@ class incremental_hashmap
   using value_type = Val;
   using iterator = iterator_t<element>;
   using const_iterator = iterator_t<const element>;
-  
+
   constexpr incremental_hashmap() = default;
   
   constexpr ~incremental_hashmap() 
   {
-    root.destroy_elems();
-    for (chunk* c = root.next; (bool)c; )
-    {
-      c->destroy_elems();
-      auto old = c;
-      c = c->next;
-      delete old;
-    }
+    destroy();
   }
   
   constexpr iterator begin() {
@@ -171,7 +184,8 @@ class incremental_hashmap
   }
   
   constexpr const_iterator begin() const {
-    return root.flag[0] ? const_iterator{&root, 0} : ++const_iterator{&root, 0};
+    auto r = const_iterator{(chunk*)&root, 0};
+    return root.flag[0] ? r : ++r;
   }
   
   constexpr const_iterator end() const {
