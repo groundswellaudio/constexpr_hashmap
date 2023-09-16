@@ -52,6 +52,11 @@ class incremental_hashmap
           std::destroy_at(&elems[k].value);
     }
     
+    constexpr void reset_flags() {
+      for (auto& b : flag)
+        b = false;
+    }
+    
     ElemStorage elems[Bucket] = {empty{}};
     bool flag[Bucket] = {false};
     chunk* next = nullptr;
@@ -107,6 +112,7 @@ class incremental_hashmap
   
   constexpr void destroy() {
     root.destroy_elems();
+    root.reset_flags();
     for (chunk* c = root.next; (bool)c; )
     {
       c->destroy_elems();
@@ -114,6 +120,7 @@ class incremental_hashmap
       c = c->next;
       delete old;
     }
+    root.next = nullptr; 
   }
   
   public : 
@@ -169,6 +176,14 @@ class incremental_hashmap
   using const_iterator = iterator_t<const element>;
 
   constexpr incremental_hashmap() = default;
+  
+  constexpr incremental_hashmap& operator=(const incremental_hashmap& o)
+  {
+    destroy();
+    for (auto& e : o)
+      emplace( e.key, e.value );
+    return *this;
+  }
   
   constexpr ~incremental_hashmap() 
   {
