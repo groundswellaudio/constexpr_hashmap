@@ -45,6 +45,23 @@ class incremental_hashmap
   
   struct chunk 
   {
+    constexpr chunk() = default;
+    
+    constexpr chunk(chunk&& c) 
+    {
+      for (int k = 0; k < Bucket; ++k)
+      {
+        if (c.flag[k])
+        {
+          c.flag[k] = false;
+          std::construct_at( &elems[k].value, (element&&) c.elems[k].value );
+          flag[k] = true;
+        }
+      }
+      next = c.next;
+      c.next = nullptr;
+    }
+    
     // only to be called in dtor
     constexpr void destroy_elems() {
       for (int k = 0; k < Bucket; ++k)
@@ -71,7 +88,7 @@ class incremental_hashmap
   template <class... Args>
   constexpr element* construct_at(chunk& t, unsigned idx, Args&&... args) {
     t.flag[idx] = true;
-    return std::construct_at(&t.elems[idx].value, element{args...});
+    return std::construct_at(&t.elems[idx].value, (Args&&) args...);
   }
   
   struct chunk_and_index {
@@ -176,6 +193,11 @@ class incremental_hashmap
   using const_iterator = iterator_t<const element>;
 
   constexpr incremental_hashmap() = default;
+  
+  constexpr incremental_hashmap(incremental_hashmap&& o) 
+  : root{(chunk&&)o.root}
+  {
+  }
   
   constexpr incremental_hashmap& operator=(const incremental_hashmap& o)
   {
