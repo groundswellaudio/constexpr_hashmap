@@ -37,6 +37,9 @@ consteval void test_map2()
   { 
     ensure( *map.find(i) == i * 4);
   }
+  
+  for (int i = num_step; i < num_step * 3; ++i)
+    ensure( not map.contains(i) );
 }
 
 
@@ -90,17 +93,20 @@ consteval void test_iter()
 
 consteval void test_set()
 {
+  const auto begin = 1241342424;
+  const auto num_step = 1234;
   swl::incremental_hashset<unsigned> s;
   
-  unsigned Val[] = {
-    4, 33, 11, 1, 11, 11, 22, 3, 15, 45, 102, 939, 23, 56, 2, 46, 412, 23429342, 32424, 293
-  };
+  for (unsigned k = begin; k < begin + num_step; ++k)
+  {
+    auto [ptr, success] = s.emplace(k);
+    ensure( success );
+  }
   
-  for (auto v : Val)
-    s.emplace(v);
-  
-  for (auto v : Val)
-    ensure( s.contains(v) );
+  for (unsigned k = begin + num_step; k < begin + num_step * 3; ++k)
+  {
+    ensure( not s.contains(k) );
+  }
 }
 
 int main()

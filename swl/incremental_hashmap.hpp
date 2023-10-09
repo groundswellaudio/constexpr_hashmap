@@ -15,7 +15,12 @@ struct pair {
 
 struct empty {};
 
-template <class Key, class Val, class Hash = hash<Key>, int Bucket = 16>
+// A simple hashmap made to perform reasonably well when : 
+// - avoiding memory relocation
+// - deletion from the map is not needed
+// - inputs are small (the meaning of small depends on the BucketSize)
+
+template <class Key, class Val, class Hash = hash<Key>, std::size_t BucketSize = 16>
 class incremental_hashmap
 {
   public : 
@@ -40,23 +45,21 @@ class incremental_hashmap
     }
     
     empty e;
-    element value; // TODO : rename this "data"
+    element data;
   };
   
   struct chunk 
   {
     constexpr chunk() = default;
     
-    constexpr chunk(chunk&& c) 
+    constexpr chunk(chunk&& c)
     {
-      for (int k = 0; k < Bucket; ++k)
+      for (int k = 0; k < BucketSize; ++k)
       {
-        if (c.flag[k])
-        {
-          c.flag[k] = false;
-          std::construct_at( &elems[k].value, (element&&) c.elems[k].value );
-          flag[k] = true;
-        }
+        if (not c.flag[k])
+          continue;
+        std::construct_at( &elems[k].data, (element&&) c.elems[k].data );
+        flag[k] = true;
       }
       next = c.next;
       c.next = nullptr;
@@ -64,18 +67,13 @@ class incremental_hashmap
     
     // only to be called in dtor
     constexpr void destroy_elems() {
-      for (int k = 0; k < Bucket; ++k)
+      for (int k = 0; k < BucketSize; ++k)
         if (flag[k])
-          std::destroy_at(&elems[k].value);
+          std::destroy_at(&elems[k].data);
     }
     
-    constexpr void reset_flags() {
-      for (auto& b : flag)
-        b = false;
-    }
-    
-    ElemStorage elems[Bucket] = {empty{}};
-    bool flag[Bucket] = {false};
+    ElemStorage elems[BucketSize] = {empty{}};
+    bool flag[BucketSize] = {false};
     chunk* next = nullptr;
   };
   
@@ -88,48 +86,54 @@ class incremental_hashmap
   template <class... Args>
   constexpr element* construct_at(chunk& t, unsigned idx, Args&&... args) {
     t.flag[idx] = true;
-    return std::construct_at(&t.elems[idx].value, (Args&&) args...);
+    return std::construct_at(&t.elems[idx].data, (Args&&) args...);
   }
   
-  struct chunk_and_index {
+  struct try_find_result {
     chunk& c;
     std::size_t index;
-    bool must_alloc = false;
+    bool found = false;
   };
   
-  constexpr chunk_and_index find_impl(const Key& key) const 
+  // find the location of key, or a suitable place to emplace it
+  // - first search at base_index = hash % BucketSize
+  // - if not found, prob linearly between base_index +/- Margin 
+  // - if not found, try the next chunk
+  constexpr try_find_result try_find(const Key& key, bool for_emplace = false) const 
   {
-    const auto idx = hash(key) % Bucket;
+    const auto idx = hash(key) % BucketSize;
     auto* c = &root;
     
     auto k = idx;
     while(true)
     {
-      if ((not c->flag[k]) || (c->elems[k].value.key == key))
-        return {(chunk&)*c, k};
+      if (not c->flag[k])
+        return {(chunk&)*c, k, false};
+      if (c->elems[k].data.key == key)
+        return {(chunk&)*c, k, true};
       ++k;
-      if (k == Bucket)
+      
+      if (k == BucketSize)
       {
-        if (not c->next)
-          return {(chunk&)*c, idx, true};
-        c = c->next;
-        k = idx;
+        if (c->next)
+        {
+          c = c->next;
+          k = idx;
+        }
+        else
+        {
+          if (not for_emplace)
+            return {(chunk&)*c, k, false};
+          auto next = new chunk{};
+          ((chunk*)c)->next = next;
+          return {(chunk&)*next, idx, false};
+        }
       }
     }
   }
   
-  constexpr chunk_and_index find_or_alloc(const Key& key) 
-  {
-    auto [c, idx, must_alloc] = find_impl(key);
-    if (not must_alloc)
-      return {c, idx};
-    c.next = new chunk{};
-    return {*c.next, idx};
-  }
-  
   constexpr void destroy() {
     root.destroy_elems();
-    root.reset_flags();
     for (chunk* c = root.next; (bool)c; )
     {
       c->destroy_elems();
@@ -153,29 +157,24 @@ class incremental_hashmap
     { 
       if (not c)
         return *this;
-        
-      while(true)
-      {
-        ++idx;
-        if (idx == Bucket)
-        {
-          c = c->next;
-          idx = 0;
-          if (not c)
-            return *this;
-          while(not c->flag[idx]) // there is at least one per chunk
-            ++idx;
-          return *this;
-        }
-        
+      
+      while(++idx != BucketSize)
         if (c->flag[idx])
           return *this;
-      }
+      
+      c = c->next;
+      if (not c)
+        return *this;
+      idx = 0;
+      // There is at least one element per bucket
+      for (; not c->flag[idx]; ++idx)
+        ;
+      return *this;
     }
     
-    constexpr T& operator*() const { return (c->elems[idx].value); }
+    constexpr T& operator*() const { return (c->elems[idx].data); }
     
-    constexpr T* operator->() const { return (&c->elems[idx].value); }
+    constexpr T* operator->() const { return (&c->elems[idx].data); }
     
     constexpr bool operator==(iterator_t i) const {
       return c == i.c and idx == i.idx;
@@ -217,7 +216,7 @@ class incremental_hashmap
   }
   
   constexpr iterator end() {
-    return iterator{nullptr, 0};
+    return iterator{nullptr, BucketSize};
   }
   
   constexpr const_iterator begin() const {
@@ -226,7 +225,7 @@ class incremental_hashmap
   }
   
   constexpr const_iterator end() const {
-    return const_iterator{nullptr, 0};
+    return const_iterator{nullptr, BucketSize};
   }
   
   template <class... Args>
@@ -240,20 +239,20 @@ class incremental_hashmap
   template <class... Args>
   constexpr pair<element*, bool> try_emplace( const Key& key, Args&&... args )
   {
-    auto [c, idx, z] = find_or_alloc(key);
-    if ( c.flag[idx] )
-      return {&c.elems[idx].value, false};
+    auto [c, idx, found] = try_find(key, true);
+    if (found)
+      return {&c.elems[idx].data, false};
     return {construct_at(c, idx, key, (Args&&)args...), true};
   }
   
   constexpr bool contains(const Key& key) const {
-    auto [c, idx, zz] = find_impl(key);
-    return (c.flag[idx]);
+    auto [c, idx, found] = try_find(key);
+    return found;
   }
   
   constexpr Val* find(const Key& key) {
-    auto [c, idx, zz] = find_impl(key);
-    return c.flag[idx] ? &c.elems[idx].value.value : nullptr;
+    auto [c, idx, found] = try_find(key);
+    return found ? &c.elems[idx].data.value : nullptr;
   }
   
   constexpr const Val* find(const Key& key) const {
