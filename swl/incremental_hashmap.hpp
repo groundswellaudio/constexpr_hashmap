@@ -20,9 +20,15 @@ struct empty {};
 // - deletion from the map is not needed
 // - inputs are small (the meaning of small depends on the BucketSize)
 
-template <class Key, class Val, class Hash = hash<Key>, std::size_t BucketSize = 16>
+// it's implemented as a forward list of fixed size bucket, 
+// the map initially looks at hash % BucketSize, perform N steps of linear probing (with N << BucketSize)
+// if not found, look at the next bucket, repeat.
+
+template <class Key, class Val, class Hash = hash<Key>, std::size_t BucketSize = 32>
 class incremental_hashmap
 {
+  static constexpr int ProbingSteps = BucketSize / 5 <= 3 ? 3 : BucketSize / 5;
+  
   public : 
   
   struct element
@@ -72,6 +78,12 @@ class incremental_hashmap
           std::destroy_at(&elems[k].data);
     }
     
+    constexpr void destroy() {
+      destroy_elems();
+      for (auto& f : flag)
+        f = false;
+    }
+    
     ElemStorage elems[BucketSize] = {empty{}};
     bool flag[BucketSize] = {false};
     chunk* next = nullptr;
@@ -95,40 +107,41 @@ class incremental_hashmap
     bool found = false;
   };
   
+  static constexpr auto make_next_chunk(chunk* c) {
+    auto next = new chunk{};
+    c->next = next;
+    return next;
+  }
+  
   // find the location of key, or a suitable place to emplace it
   // - first search at base_index = hash % BucketSize
-  // - if not found, prob linearly between base_index +/- Margin 
+  // - if not found, prob linearly between index + ProbingStep (and wrap around if needed)
   // - if not found, try the next chunk
   constexpr try_find_result try_find(const Key& key, bool for_emplace = false) const 
   {
     const auto idx = hash(key) % BucketSize;
     auto* c = &root;
     
-    auto k = idx;
     while(true)
     {
-      if (not c->flag[k])
-        return {(chunk&)*c, k, false};
-      if (c->elems[k].data.key == key)
-        return {(chunk&)*c, k, true};
-      ++k;
-      
-      if (k == BucketSize)
+      auto k = idx;
+      for (int n = 0; n < ProbingSteps; ++n)
       {
-        if (c->next)
-        {
-          c = c->next;
-          k = idx;
-        }
-        else
-        {
-          if (not for_emplace)
-            return {(chunk&)*c, k, false};
-          auto next = new chunk{};
-          ((chunk*)c)->next = next;
-          return {(chunk&)*next, idx, false};
-        }
+        if (not c->flag[k])
+          return {(chunk&)*c, k, false};
+        if (c->elems[k].data.key == key)
+          return {(chunk&)*c, k, true};
+          
+        ++k;
+        k = (k == BucketSize) ? 0 : k;
       }
+      
+      if (c->next)
+        c = c->next;
+      else if (not for_emplace)
+        return {(chunk&)*c, k, false};
+      else
+        return {*make_next_chunk((chunk*)c), idx, false};
     }
   }
   
@@ -142,6 +155,35 @@ class incremental_hashmap
       delete old;
     }
     root.next = nullptr; 
+  }
+  
+  constexpr void destroy_for_reuse() {
+    destroy();
+    for (auto& f : root.flag)
+      f = false;
+  }
+  
+  constexpr void assign_from(const incremental_hashmap& o)
+  {
+    const chunk* oc = &o.root;
+    chunk* c = &root;
+    
+    while(true)
+    {
+      for (int k = 0; k < BucketSize; ++k)
+      {
+        if (oc->flag[k])
+        {
+          std::construct_at( &c->elems[k].data, oc->elems[k].data );
+          c->flag[k] = true;
+        }
+      }
+      
+      oc = oc->next;
+      if (not oc)
+        return;
+      c = make_next_chunk(c);
+    }
   }
   
   public : 
@@ -193,16 +235,22 @@ class incremental_hashmap
 
   constexpr incremental_hashmap() = default;
   
+  constexpr incremental_hashmap(const incremental_hashmap& o) 
+    requires (std::is_copy_constructible_v<Val>)
+  {
+    assign_from(o);
+  }
+  
   constexpr incremental_hashmap(incremental_hashmap&& o) 
   : root{(chunk&&)o.root}
   {
   }
   
   constexpr incremental_hashmap& operator=(const incremental_hashmap& o)
+    requires (std::is_copy_constructible_v<Val>)
   {
-    destroy();
-    for (auto& e : o)
-      emplace( e.key, e.value );
+    destroy_for_reuse();
+    assign_from(o);
     return *this;
   }
   
